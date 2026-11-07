@@ -1,0 +1,138 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            targets: x86_64-unknown-linux-gnu
+            artifact: libdsp_diagnose.so
+            out: dsp_diagnose.so
+            universal: false
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            targets: x86_64-pc-windows-msvc
+            artifact: dsp_diagnose.dll
+            out: dsp_diagnose.dll
+            universal: false
+          - name: macos-universal
+            os: macos-14
+            target: universal
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+            artifact: none
+            out: dsp_diagnose.dylib
+            universal: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.name }}-${{ hashFiles('Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.name }}-
+
+      - name: Test
+        shell: bash
+        run: |
+          if [ "${{ matrix.universal }}" = "true" ]; then
+            cargo test
+          else
+            cargo test --target "${{ matrix.target }}"
+          fi
+
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p stage
+          if [ "${{ matrix.universal }}" = "true" ]; then
+            cargo build --release --target aarch64-apple-darwin
+            cargo build --release --target x86_64-apple-darwin
+            lipo -create -output "stage/${{ matrix.out }}" \
+              target/aarch64-apple-darwin/release/libdsp_diagnose.dylib \
+              target/x86_64-apple-darwin/release/libdsp_diagnose.dylib
+          else
+            cargo build --release --target "${{ matrix.target }}"
+            cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "stage/${{ matrix.out }}"
+          fi
+          ls -l stage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dsp_diagnose-${{ matrix.name }}
+          path: stage/*
+          if-no-files-found: error
+
+  package:
+    name: package
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dsp_diagnose-*
+          path: stage
+          merge-multiple: true
+
+      - name: Assemble plugin.zip
+        run: |
+          cp plugin.json panel.html LICENSE README.md stage/
+          ls -l stage
+          (cd stage && zip -qr ../plugin.zip .)
+          unzip -l plugin.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package
+          path: plugin.zip
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-package
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            plugin.zip
+            plugin.json
+          generate_release_notes: true

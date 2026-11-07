@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DSP Diagnose</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: var(--surface, #17181c);
+    --card: var(--surface-container, #1f2127);
+    --line: var(--surface-variant, #32343c);
+    --text: var(--on-surface, #e8e9ee);
+    --muted: var(--on-surface-variant, #9fa2ad);
+    --primary: var(--primary, #7aa2ff);
+    --danger: var(--error, #ff6b6b);
+    --ok: #3ddc97;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 18px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0; }
+  h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px; border-radius: 999px; font-size: 12px;
+    background: color-mix(in srgb, var(--card) 80%, transparent);
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.warn { background: #f5b942; }
+  .dot.err { background: var(--danger); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .banner {
+    display: none; padding: 10px 12px; margin-bottom: 12px; border-radius: 12px;
+    background: color-mix(in srgb, var(--danger) 14%, var(--card));
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
+    color: var(--text); font-size: 13px;
+  }
+  .banner.show { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+  input[type="text"], input[type="number"], select {
+    width: 100%; padding: 8px 10px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    font: inherit;
+  }
+  input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: -1px; }
+  .node-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  .node-row:last-child { border-bottom: 0; }
+  .badge {
+    min-width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
+    background: var(--bg); border: 1px solid var(--line); font-size: 12px; color: var(--muted);
+  }
+  .grow { flex: 1; min-width: 0; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    padding: 8px 14px; border-radius: 9px; border: 1px solid var(--line);
+    background: var(--card); color: var(--text); font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--primary); }
+  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+  button.danger { border-color: color-mix(in srgb, var(--danger) 60%, var(--line)); color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 11.5px; word-break: break-all; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; }
+  td { padding: 5px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  .nowrap { white-space: nowrap; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
+  a { color: var(--primary); }
+</style>
+</head>
+<body>
+  <div class="head">
+    <div>
+      <h1 id="title">DSP Diagnose</h1>
+      <div class="muted" id="subtitle">Records what each DSP chain position actually receives.</div>
+    </div>
+    <div class="chips">
+      <span class="chip"><span class="dot" id="dot-rec"></span><span id="chip-rec">idle</span></span>
+      <span class="chip"><span class="dot" id="dot-chain"></span><span id="chip-chain">chain ?</span></span>
+      <span class="chip"><span class="dot" id="dot-host"></span><span id="chip-host">host ?</span></span>
+    </div>
+  </div>
+
+  <div class="banner" id="banner"></div>
+
+  <div class="card">
+    <h2 id="settings-title">Capture settings</h2>
+    <div class="grid">
+      <label class="field"><span id="lbl-count">Node count (1–16)</span>
+        <input id="nodeCount" type="number" min="1" max="16" step="1" />
+      </label>
+      <label class="field"><span id="lbl-bits">Bit depth</span>
+        <select id="bits">
+          <option value="16">16-bit PCM</option>
+          <option value="24">24-bit PCM</option>
+          <option value="32">32-bit float</option>
+        </select>
+      </label>
+      <label class="field"><span id="lbl-segment">Split file every (seconds)</span>
+        <input id="segmentSeconds" type="number" min="5" max="86400" step="5" />
+      </label>
+      <label class="field"><span id="lbl-autostart">Recording</span>
+        <select id="autoStart">
+          <option value="true">start automatically</option>
+          <option value="false">start manually</option>
+        </select>
+      </label>
+    </div>
+    <label class="field" style="margin-top:12px"><span id="lbl-dir">Output directory (empty = Music/MicYou DSP Diagnose)</span>
+      <input id="outputDir" type="text" spellcheck="false" placeholder="~/Music/MicYou DSP Diagnose" />
+    </label>
+    <div class="actions" style="margin-top:12px">
+      <button class="primary" id="btn-apply">Apply</button>
+      <button id="btn-chain">Apply nodes to chain</button>
+      <button id="btn-verify">Verify chain</button>
+      <button id="btn-start">Start</button>
+      <button class="danger" id="btn-stop">Stop</button>
+      <button id="btn-refresh">Refresh</button>
+    </div>
+    <div class="muted" id="save-state" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
+    <div class="foot" style="margin-bottom:8px">
+      <h2 id="nodes-title" style="margin:0">Node layout</h2>
+      <span class="muted" id="nodes-hint">drag these nodes in MicYou → Settings → Audio → Processing chain</span>
+    </div>
+    <div id="node-editor"></div>
+  </div>
+
+  <div class="card">
+    <div class="foot" style="margin-bottom:8px">
+      <h2 id="status-title" style="margin:0">Live status</h2>
+      <span class="muted mono" id="status-dir"></span>
+    </div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Name</th><th>Files</th><th>Size</th><th>Dropped</th><th>Current / last file</th></tr>
+      </thead>
+      <tbody id="status-body"><tr><td colspan="6" class="muted">waiting for the plugin…</td></tr></tbody>
+    </table>
+    <div class="foot" style="margin-top:10px">
+      <span class="muted mono" id="last-log"></span>
+      <a href="#" id="repo-link">project page</a>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var ZH = /^zh/i.test(navigator.language || "");
+  var TEXT = {
+    title: ["DSP Diagnose", "DSP 录音诊断"],
+    subtitle: [
+      "Records what each DSP chain position actually receives.",
+      "记录每个 DSP 链节点位置实际收到的音频。"
+    ],
+    settings: ["Capture settings", "录制设置"],
+    count: ["Node count (1–16)", "节点数量（1–16）"],
+    bits: ["Bit depth", "位深"],
+    segment: ["Split file every (seconds)", "分段时长（秒）"],
+    recording: ["Recording", "录制"],
+    autoOn: ["start automatically", "启用后自动开始"],
+    autoOff: ["start manually", "手动开始"],
+    dir: ["Output directory (empty = Music/MicYou DSP Diagnose)", "输出目录（留空 = 音乐/MicYou DSP Diagnose）"],
+    apply: ["Apply", "应用"],
+    chain: ["Apply nodes to chain", "同步节点到处理链"],
+    verify: ["Verify chain", "检查处理链"],
+    start: ["Start", "开始"],
+    stop: ["Stop", "停止"],
+    refresh: ["Refresh", "刷新"],
+    nodes: ["Node layout", "节点布局"],
+    nodesHint: [
+      "drag these nodes in MicYou → Settings → Audio → Processing chain",
+      "在 MicYou → 设置 → 音频 → 处理链 中拖动这些节点"
+    ],
+    status: ["Live status", "实时状态"],
+    files: ["Files", "文件"],
+    size: ["Size", "大小"],
+    dropped: ["Dropped", "丢弃"],
+    current: ["Current / last file", "当前 / 上一个文件"],
+    waiting: ["waiting for the plugin…", "等待插件…"],
+    project: ["project page", "项目主页"],
+    idle: ["idle", "未录制"],
+    rec: ["recording", "录制中"],
+    chainOk: ["chain ready", "处理链就绪"],
+    chainBad: ["chain incomplete", "处理链不完整"],
+    chainUnknown: ["chain ?", "处理链 ?"],
+    hostOk: ["multi-node host", "支持多节点"],
+    hostStock: ["stock host (dedup)", "原版宿主（会去重）"],
+    hostUnknown: ["host ?", "宿主 ?"],
+    saved: ["saved", "已保存"],
+    saving: ["saving…", "保存中…"],
+    warn: [
+      "This MicYou build collapses duplicate plugin nodes. Only node 1 can record. Install the build from host-patch/ (see the README) to record all nodes.",
+      "当前 MicYou 宿主会合并重复的插件节点，因此只有节点 1 能录音。要录制所有节点，请使用 host-patch/ 中的补丁构建（见 README）。"
+    ],
+    noDir: ["(not created yet)", "（尚未创建）"]
+  };
+  function t(key) {
+    var pair = TEXT[key];
+    if (!pair) return key;
+    return ZH ? pair[1] : pair[0];
+  }
+
+  var cfg = {};
+  var nodes = [];
+  var busy = false;
+  var saveTimer = null;
+
+  function call(api, args) {
+    return new Promise(function (resolve, reject) {
+      var id = "p" + Math.random().toString(36).slice(2);
+      function onMessage(event) {
+        var data = event.data;
+        if (!data || data.__micyou !== 1 || data.id !== id) return;
+        window.removeEventListener("message", onMessage);
+        if (data.ok) resolve(data.value);
+        else reject(new Error(String(data.error)));
+      }
+      window.addEventListener("message", onMessage);
+      window.parent.postMessage({ __micyou: 1, id: id, api: api, args: args || {} }, "*");
+    });
+  }
+
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function bytes(value) {
+    var n = Number(value) || 0;
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KiB";
+    if (n < 1073741824) return (n / 1048576).toFixed(1) + " MiB";
+    return (n / 1073741824).toFixed(2) + " GiB";
+  }
+
+  function setLabel(id, key) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = t(key);
+  }
+
+  function applyStaticText() {
+    document.documentElement.lang = ZH ? "zh" : "en";
+    document.title = t("title");
+    setLabel("title", "title");
+    setLabel("subtitle", "subtitle");
+    setLabel("settings-title", "settings");
+    setLabel("lbl-count", "count");
+    setLabel("lbl-bits", "bits");
+    setLabel("lbl-segment", "segment");
+    setLabel("lbl-autostart", "recording");
+    setLabel("lbl-dir", "dir");
+    setLabel("btn-apply", "apply");
+    setLabel("btn-chain", "chain");
+    setLabel("btn-verify", "verify");
+    setLabel("btn-start", "start");
+    setLabel("btn-stop", "stop");
+    setLabel("btn-refresh", "refresh");
+    setLabel("nodes-title", "nodes");
+    setLabel("nodes-hint", "nodesHint");
+    setLabel("status-title", "status");
+    setLabel("repo-link", "project");
+    document.getElementById("autoStart").options[0].textContent = t("autoOn");
+    document.getElementById("autoStart").options[1].textContent = t("autoOff");
+  }
+
+  function normalizeNodes(source, count) {
+    var list = [];
+    var used = {};
+    for (var i = 0; i < count; i += 1) {
+      var item = (source && source[i]) || {};
+      var base = String(item.name == null ? "node-" + (i + 1) : item.name);
+      var name = base.trim() || "node-" + (i + 1);
+      var candidate = name;
+      var suffix = 2;
+      while (used[candidate.toLowerCase()]) {
+        candidate = name + "-" + suffix;
+        suffix += 1;
+      }
+      used[candidate.toLowerCase()] = true;
+      list.push({ name: candidate, enabled: item.enabled !== false });
+    }
+    return list;
+  }
+
+  function renderEditor() {
+    var host = document.getElementById("node-editor");
+    if (!nodes.length) {
+      host.innerHTML = '<div class="muted">' + esc(t("waiting")) + "</div>";
+      return;
+    }
+    host.innerHTML = nodes.map(function (node, index) {
+      return (
+        '<div class="node-row">' +
+          '<span class="badge">' + (index + 1) + "</span>" +
+          '<input class="grow" type="text" data-name="' + index + '" maxlength="64" ' +
+            'aria-label="node ' + (index + 1) + '" value="' + esc(node.name) + '" />' +
+          '<label class="muted nowrap"><input type="checkbox" data-enabled="' + index + '" ' +
+            (node.enabled ? "checked" : "") + " /> " + (ZH ? "录音" : "record") + "</label>" +
+        "</div>"
+      );
+    }).join("");
+
+    host.querySelectorAll("[data-name]").forEach(function (input) {
+      input.addEventListener("input", function () {
+        var index = Number(input.getAttribute("data-name"));
+        if (nodes[index]) nodes[index].name = input.value;
+        scheduleSave();
+      });
+    });
+    host.querySelectorAll("[data-enabled]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        var index = Number(input.getAttribute("data-enabled"));
+        if (nodes[index]) nodes[index].enabled = input.checked;
+        saveNow();
+      });
+    });
+  }
+
+  function renderStatus(status) {
+    status = status || {};
+    var recording = Boolean(status.recording);
+    var nodeCount = Number(status.nodeCount) || nodes.length || 1;
+    var chainNodes = Number(status.chainNodes) || 0;
+    var hostMulti = Boolean(status.hostMultiNode);
+
+    document.getElementById("dot-rec").className = "dot" + (recording ? " on" : "");
+    document.getElementById("chip-rec").textContent = recording ? t("rec") : t("idle");
+
+    var chainReady = chainNodes === nodeCount && chainNodes > 0;
+    document.getElementById("dot-chain").className =
+      "dot" + (chainNodes === 0 ? "" : chainReady ? " on" : " err");
+    document.getElementById("chip-chain").textContent =
+      chainNodes === 0 ? t("chainUnknown") : chainReady ? t("chainOk") : t("chainBad");
+
+    document.getElementById("dot-host").className = "dot" + (hostMulti ? " on" : " warn");
+    document.getElementById("chip-host").textContent = hostMulti ? t("hostOk") : t("hostStock");
+
+    var banner = document.getElementById("banner");
+    var unsupported = nodeCount > 1 && chainNodes > 0 && chainNodes < nodeCount;
+    banner.className = "banner" + (unsupported ? " show" : "");
+    banner.textContent = unsupported ? t("warn") : "";
+
+    var dir = status.outputDir || "";
+    document.getElementById("status-dir").textContent = dir || t("noDir");
+    document.getElementById("status-dir").title = dir;
+
+    var list = Array.isArray(status.nodes) ? status.nodes : [];
+    var body = document.getElementById("status-body");
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">' + esc(t("waiting")) + "</td></tr>";
+    } else {
+      body.innerHTML = list.map(function (node) {
+        var active = node.current || t("noDir");
+        var last = node.last && node.last !== node.current ? '<div class="muted">↳ ' + esc(node.last) + "</div>" : "";
+        return (
+          "<tr>" +
+            "<td>" + esc(node.index) + "</td>" +
+            '<td class="nowrap">' + esc(node.name) + (node.enabled ? "" : ' <span class="muted">(off)</span>') + "</td>" +
+            "<td>" + esc(node.files) + "</td>" +
+            "<td>" + bytes(node.bytes) + "</td>" +
+            "<td>" + esc(node.dropped) + "</td>" +
+            '<td class="mono">' + esc(active) + last + "</td>" +
+          "</tr>"
+        );
+      }).join("");
+    }
+    document.getElementById("last-log").textContent = status.lastLog || "";
+
+    var start = document.getElementById("btn-start");
+    var stop = document.getElementById("btn-stop");
+    start.disabled = recording || busy;
+    stop.disabled = !recording || busy;
+  }
+
+  function scheduleSave() {
+    var state = document.getElementById("save-state");
+    state.textContent = t("saving");
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(saveNow, 400);
+  }
+
+  function saveNow() {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+    if (busy) return;
+    busy = true;
+    var state = document.getElementById("save-state");
+    state.textContent = t("saving");
+    var payload = {
+      nodeCount: nodes.length,
+      nodes: nodes.map(function (node) { return { name: node.name, enabled: node.enabled }; }),
+      outputDir: document.getElementById("outputDir").value.trim(),
+      segmentSeconds: clamp(Number(document.getElementById("segmentSeconds").value) || 1800, 5, 86400),
+      bits: Number(document.getElementById("bits").value) || 16,
+      autoStart: document.getElementById("autoStart").value === "true"
+    };
+    Promise.all([
+      call("set_config", { key: "nodes", value: payload.nodes }),
+      call("set_config", { key: "nodeCount", value: payload.nodeCount }),
+      call("set_config", { key: "outputDir", value: payload.outputDir }),
+      call("set_config", { key: "segmentSeconds", value: payload.segmentSeconds }),
+      call("set_config", { key: "bits", value: payload.bits }),
+      call("set_config", { key: "autoStart", value: payload.autoStart })
+    ]).then(function () {
+      return call("trigger", { action: "apply", payload: null });
+    }).then(function () {
+      state.textContent = t("saved");
+    }).catch(function (error) {
+      state.textContent = String(error && error.message || error);
+    }).then(function () {
+      busy = false;
+      renderStatus(cfg.status);
+    });
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function fillForm() {
+    var count = clamp(Number(cfg.nodeCount) || 1, 1, 16);
+    nodes = normalizeNodes(cfg.nodes, count);
+    document.getElementById("nodeCount").value = String(count);
+    document.getElementById("outputDir").value = String(cfg.outputDir || "");
+    document.getElementById("segmentSeconds").value = String(Number(cfg.segmentSeconds) || 1800);
+    document.getElementById("bits").value = String(Number(cfg.bits) || 16);
+    document.getElementById("autoStart").value = cfg.autoStart === false ? "false" : "true";
+    renderEditor();
+    renderStatus(cfg.status);
+  }
+
+  function load() {
+    return call("get_config").then(function (value) {
+      cfg = value || {};
+      fillForm();
+    }).catch(function (error) {
+      document.getElementById("save-state").textContent = String(error && error.message || error);
+    });
+  }
+
+  function trigger(action) {
+    return call("trigger", { action: action, payload: null }).then(load).catch(function (error) {
+      document.getElementById("save-state").textContent = String(error && error.message || error);
+    });
+  }
+
+  function bind() {
+    document.getElementById("btn-apply").addEventListener("click", saveNow);
+    document.getElementById("btn-chain").addEventListener("click", function () {
+      if (saveTimer) saveNow();
+      trigger("chain:apply");
+    });
+    document.getElementById("btn-verify").addEventListener("click", function () { trigger("chain:verify"); });
+    document.getElementById("btn-start").addEventListener("click", function () { trigger("start"); });
+    document.getElementById("btn-stop").addEventListener("click", function () { trigger("stop"); });
+    document.getElementById("btn-refresh").addEventListener("click", load);
+    document.getElementById("repo-link").addEventListener("click", function (event) {
+      event.preventDefault();
+      call("trigger", { action: "open_repo", payload: null }).catch(function () {});
+    });
+
+    document.getElementById("nodeCount").addEventListener("change", function () {
+      var count = clamp(Number(this.value) || 1, 1, 16);
+      nodes = normalizeNodes(nodes, count);
+      renderEditor();
+      saveNow();
+    });
+    ["outputDir", "segmentSeconds", "bits", "autoStart"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", saveNow);
+      if (id === "outputDir" || id === "segmentSeconds") {
+        document.getElementById(id).addEventListener("input", scheduleSave);
+      }
+    });
+  }
+
+  applyStaticText();
+  bind();
+  load();
+  setInterval(function () {
+    call("get_config").then(function (value) {
+      cfg = value || {};
+      renderStatus(cfg.status);
+    }).catch(function () {});
+  }, 1000);
+})();
+</script>
+</body>
+</html>
