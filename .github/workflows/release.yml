@@ -37,7 +37,7 @@ jobs:
             out: dsp_diagnose.dll
             universal: false
           - name: macos-universal
-            os: macos-14
+            os: macos-latest
             target: universal
             targets: aarch64-apple-darwin,x86_64-apple-darwin
             artifact: none
