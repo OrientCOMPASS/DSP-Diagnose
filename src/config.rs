@@ -52,7 +52,7 @@ impl Config {
         let mut cfg = Config::default();
         let json = |key: &str| host.get_config(key).and_then(|s| serde_json::from_str::<Value>(&s).ok());
 
-        if let Some(v) = json("nodeCount").and_then(|v| v.as_u64()) {
+        if let Some(v) = json("nodeCount").and_then(|v| number(&v)) {
             cfg.node_count = (v as usize).clamp(1, MAX_TAPS);
         }
         if let Some(v) = json("outputDir").and_then(|v| v.as_str().map(str::to_owned)) {
@@ -121,11 +121,11 @@ impl Config {
             }
             let mut candidate = base.clone();
             let mut suffix = 2;
-            while used.iter().any(|u| u.eq_ignore_ascii_case(&candidate)) {
+            while used.iter().any(|u| u == &candidate.to_lowercase()) {
                 candidate = format!("{base}-{suffix}");
                 suffix += 1;
             }
-            used.push(candidate.clone());
+            used.push(candidate.to_lowercase());
             node.name = candidate;
         }
     }

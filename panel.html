@@ -465,7 +465,9 @@
     if (raw === "") return 1800;
     var value = Number(raw);
     if (!Number.isFinite(value)) return 1800;
-    return clamp(Math.round(value), 0, 86400);
+    var rounded = Math.round(value);
+    // 0 disables rotation; otherwise the backend treats 1-4 s as 5 s.
+    return rounded === 0 ? 0 : clamp(Math.max(rounded, 5), 5, 86400);
   }
 
   function readBits() {

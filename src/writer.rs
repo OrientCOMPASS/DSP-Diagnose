@@ -9,7 +9,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+/// Recover a poisoned lock instead of silently stopping a tap's writer.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Samples of headroom per tap (about 5.4 s of mono 48 kHz audio).
 pub const RING_SAMPLES: usize = 1 << 18;
@@ -58,9 +64,15 @@ fn run(engine: &'static Engine) {
     loop {
         // The writer is the ring's only consumer, so clearing here cannot race
         // the audio producer: it only advances the consumer cursor. Clearing
-        // from `Engine::start` would race this thread's tail store.
+        // from `Engine::start` would race this thread's tail store. A file left
+        // open by an immediate stop/start is finalized so a new take starts in
+        // a new file.
         if engine.discard.swap(false, Ordering::AcqRel) {
             for tap in engine.taps.iter() {
+                let mut state = lock(&tap.writer);
+                if state.file.is_some() {
+                    finalize(engine, tap, &mut state);
+                }
                 tap.ring.clear();
             }
         }
@@ -74,9 +86,7 @@ fn run(engine: &'static Engine) {
             let available = tap.ring.pop_into(&mut scratch);
             let enabled = tap.enabled.load(Ordering::Relaxed) && index < node_count;
 
-            let Ok(mut state) = tap.writer.lock() else {
-                continue;
-            };
+            let mut state = lock(&tap.writer);
             if !recording || !enabled {
                 if state.file.is_some() {
                     finalize(engine, tap, &mut state);
@@ -122,10 +132,9 @@ fn run(engine: &'static Engine) {
 
         if stopping {
             for tap in engine.taps.iter() {
-                if let Ok(mut state) = tap.writer.lock() {
-                    if state.file.is_some() {
-                        finalize(engine, tap, &mut state);
-                    }
+                let mut state = lock(&tap.writer);
+                if state.file.is_some() {
+                    finalize(engine, tap, &mut state);
                 }
             }
             break;
@@ -135,17 +144,12 @@ fn run(engine: &'static Engine) {
 }
 
 fn output_dir_changed(engine: &Engine, state: &TapWriterState) -> bool {
-    let Ok(dir) = engine.output_dir.lock() else {
-        return false;
-    };
+    let dir = lock(&engine.output_dir);
     state.dir.as_path() != dir.as_path()
 }
 
 fn open_file(engine: &Engine, tap: &Tap, state: &mut TapWriterState, index: usize) -> bool {
-    let dir = match engine.output_dir.lock() {
-        Ok(dir) => dir.clone(),
-        Err(_) => return false,
-    };
+    let dir = lock(&engine.output_dir).clone();
     if let Err(error) = std::fs::create_dir_all(&dir) {
         engine.log_once(format!(
             "cannot create output directory {}: {error}",
@@ -154,11 +158,7 @@ fn open_file(engine: &Engine, tap: &Tap, state: &mut TapWriterState, index: usiz
         return false;
     }
 
-    let name = tap
-        .name
-        .lock()
-        .map(|name| name.clone())
-        .unwrap_or_else(|_| format!("node-{}", index + 1));
+    let name = lock(&tap.name).clone();
     let timestamp = Local::now().format("%Y%m%d%H%M%S").to_string();
     let mut path = dir.join(format!("{timestamp}-{name}.wav"));
     let mut suffix = 2;
@@ -206,9 +206,7 @@ fn open_file(engine: &Engine, tap: &Tap, state: &mut TapWriterState, index: usiz
     }
 
     tap.files.fetch_add(1, Ordering::Relaxed);
-    if let Ok(mut current) = tap.current.lock() {
-        *current = path.display().to_string();
-    }
+    *lock(&tap.current) = path.display().to_string();
     engine.log_once(format!(
         "recording node {} -> {}",
         index + 1,
@@ -313,12 +311,10 @@ fn finalize(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
             "finalize failed for {}: {error}",
             state.path.display()
         ));
-    } else if let Ok(mut last) = tap.last.lock() {
-        *last = state.path.display().to_string();
+    } else {
+        *lock(&tap.last) = state.path.display().to_string();
     }
-    if let Ok(mut current) = tap.current.lock() {
-        current.clear();
-    }
+    lock(&tap.current).clear();
     state.data_bytes = 0;
     state.path = PathBuf::new();
 }
