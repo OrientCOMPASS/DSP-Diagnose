@@ -521,6 +521,7 @@
       autoStart: document.getElementById("autoStart").value === "true"
     };
 
+    var ok = true;
     var run = Promise.all([
       call("set_config", { key: "nodes", value: payload.nodes }),
       call("set_config", { key: "nodeCount", value: payload.nodeCount }),
@@ -533,6 +534,7 @@
     }).then(function () {
       state.textContent = t("saved");
     }).catch(function (error) {
+      ok = false;
       state.textContent = String((error && error.message) || error);
     }).then(function () {
       busy = false;
@@ -543,6 +545,8 @@
       }).catch(function () {
         renderStatus(cfg.status);
       });
+    }).then(function () {
+      return ok;
     });
 
     // Follow the in-flight save; a second saveNow() can queue behind it.
@@ -554,7 +558,8 @@
   // chain" used to fire immediately, before the debounced save finished, so it
   // could reconcile the chain with the previous node count.
   function saveThen(action) {
-    return saveNow().then(function () {
+    return saveNow().then(function (ok) {
+      if (!ok) return;
       return trigger(action);
     });
   }
