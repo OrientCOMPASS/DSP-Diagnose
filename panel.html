@@ -256,6 +256,7 @@
   var cfg = {};
   var nodes = [];
   var busy = false;
+  var loaded = false;
   var saveTimer = null;
   var savePromise = Promise.resolve();
 
@@ -487,6 +488,12 @@
       clearTimeout(saveTimer);
       saveTimer = null;
     }
+    if (!loaded) {
+      // Never let an early click overwrite the stored config with the empty
+      // form that exists before get_config returns.
+      document.getElementById("save-state").textContent = t("waiting");
+      return Promise.resolve(false);
+    }
     if (busy) {
       // A save is in flight; run another one afterwards so edits made during
       // the request are not silently lost.
@@ -584,8 +591,12 @@
     return call("get_config").then(function (value) {
       cfg = value || {};
       fillForm();
+      loaded = true;
+      setActionDisabled(false);
+      return true;
     }).catch(function (error) {
       document.getElementById("save-state").textContent = String((error && error.message) || error);
+      return false;
     });
   }
 
@@ -661,8 +672,12 @@
       ZH = /^zh/i.test(locale);
       applyStaticText();
       bind();
-      void load();
-      setInterval(poll, 1000);
+      setActionDisabled(true);
+      document.getElementById("btn-start").disabled = true;
+      document.getElementById("btn-stop").disabled = true;
+      load().then(function (ok) {
+        if (ok) setInterval(poll, 1000);
+      });
     });
   }
 

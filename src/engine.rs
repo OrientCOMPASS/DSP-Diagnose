@@ -221,10 +221,16 @@ impl Engine {
     /// user actions re-enable one attempt through [`Self::request_chain_repair`].
     pub fn apply_chain(&self) -> Result<usize, String> {
         let desired = self.node_count.load(Ordering::Acquire).max(1);
-        let settings = self
-            .host
-            .get_dsp_settings()
-            .ok_or_else(|| "host did not expose DSP settings (needs control.observe)".to_string())?;
+        let settings = match self.host.get_dsp_settings() {
+            Some(settings) => settings,
+            None => {
+                let message = "host did not expose DSP settings (needs control.observe)";
+                self.auto_repair.store(false, Ordering::Release);
+                self.log_once(message);
+                self.publish_status(true);
+                return Err(message.to_string());
+            }
+        };
         let value: Value = serde_json::from_str(&settings)
             .map_err(|error| format!("invalid DSP settings JSON: {error}"))?;
         let chain = read_chain(&value)?;
@@ -291,10 +297,12 @@ impl Engine {
     }
 
     fn read_chain_len(&self) -> Result<usize, String> {
-        let settings = self
-            .host
-            .get_dsp_settings()
-            .ok_or_else(|| "host did not expose DSP settings".to_string())?;
+        let Some(settings) = self.host.get_dsp_settings() else {
+            let message = "host did not expose DSP settings";
+            self.log_once(message);
+            self.publish_status(true);
+            return Err(message.to_string());
+        };
         let value: Value = serde_json::from_str(&settings)
             .map_err(|error| format!("invalid DSP settings JSON: {error}"))?;
         let chain = read_chain(&value)?;
