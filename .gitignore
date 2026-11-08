@@ -1,5 +1,6 @@
 /target
 /dist
+/host-patch
 **/*.rs.bk
 *.pdb
 *.dSYM

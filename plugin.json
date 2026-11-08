@@ -6,7 +6,7 @@
     "zh": "DSP 录音诊断",
     "zh-CN": "DSP 录音诊断"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Records the audio received at each DSP node position to timestamped WAV files for chain diagnostics.",
   "descriptionI18n": {
     "en": "Records the audio received at each DSP node position to timestamped WAV files for chain diagnostics.",
@@ -26,6 +26,7 @@
     "aarch64"
   ],
   "apiVersion": 2,
+  "minHostVersion": "2.1.2",
   "capabilities": [
     "dsp.node",
     "config.read",

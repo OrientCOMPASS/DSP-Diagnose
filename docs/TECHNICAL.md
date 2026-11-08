@@ -73,8 +73,8 @@ mpl_result_t micyou_plugin_handle_message(const char *source, const char *topic,
                                           const uint8_t *payload, uint32_t len);
 ```
 
-Extension export added by the host patch (ignored by the stock loader, loaded
-only when present):
+Extension export for per-node recording (MicYou 2.1.2 or newer; ignored by
+older loaders, which keep calling `micyou_plugin_process`):
 
 ```c
 mpl_result_t micyou_plugin_process_node(float *data, uint32_t samples,
@@ -86,7 +86,7 @@ mpl_result_t micyou_plugin_process_node(float *data, uint32_t samples,
 **same** plugin id in the current chain. Both process exports set `*bypass = 0`,
 mutate nothing, and return `MPL_OK`; the plugin is observe-only.
 
-`abi_version` stays `1` and `api_version` stays `2`, so the patch does not
+`abi_version` stays `1` and `api_version` stays `2`, so the extension does not
 require an ABI bump: old plugins simply do not export the new symbol and keep
 using `micyou_plugin_process`.
 

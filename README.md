@@ -26,23 +26,14 @@ clipping, dropouts) can be located by listening instead of guessing.
 - Shows a live status table in the plugin panel: files, bytes, dropped samples, current
   and previous file per node.
 
-## The host limitation (read this)
+## Host support
 
-MicYou as of `master` gives every plugin **one** `Plugin:<id>` chain node and de-duplicates
-repeats on every settings save (`reconcile_plugin_chain` in the Rust host and
-`normalizeChain` in the frontend). A plugin cannot create a second node through the
-plugin API alone.
+Multiple copies of one plugin in the DSP chain are a MicYou feature. This plugin requires
+MicYou **2.1.2 or newer** (`minHostVersion` in `plugin.json`); that host passes the node
+occurrence index to the plugin, so every copy records only the audio at its own position.
 
-This repository therefore contains two deliverables:
-
-| Path | Purpose |
-| --- | --- |
-| `src/`, `plugin.json`, `panel.html` | The plugin itself, works on stock MicYou (records node 1). |
-| `host-patch/` | Small, opt-in MicYou source patch that allows duplicate nodes **only** for plugins whose manifest sets `dsp.allowMultipleNodes: true`, and passes the node occurrence index to the plugin. |
-
-Without the patch, the panel shows a warning and only node 1 records. With the patch, all
-nodes record independently. See [`host-patch/README.md`](host-patch/README.md) for the
-dedup analysis and the exact changes.
+On an older host the plugin still loads and records node 1, and its panel warns that only
+one node is active.
 
 ## Install
 
