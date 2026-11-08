@@ -28,12 +28,18 @@ clipping, dropouts) can be located by listening instead of guessing.
 
 ## Host support
 
-Multiple copies of one plugin in the DSP chain are a MicYou feature. This plugin requires
-MicYou **2.1.2 or newer** (`minHostVersion` in `plugin.json`); that host passes the node
-occurrence index to the plugin, so every copy records only the audio at its own position.
+Multiple copies of one plugin in the DSP chain are a MicYou feature introduced by the
+multi-node host patch (`host-patch/micyou-multi-node.patch` in the workspace). This
+plugin requires MicYou **2.1.1 or newer** (`minHostVersion` in `plugin.json`) **and** a
+host build with that patch: the patch keeps duplicate `Plugin:<id>` entries and passes
+the node occurrence index to `micyou_plugin_process_node`, so every copy records only
+the audio at its own position.
 
-On an older host the plugin still loads and records node 1, and its panel warns that only
-one node is active.
+Stock MicYou ignores `dsp.allowMultipleNodes` and still collapses duplicates. The
+plugin detects this at runtime: it keeps recording node 1, publishes
+`chainOk: false` / `hostMultiNode: false`, and its panel warns that only one node is
+active. `minHostVersion` cannot express "patched build", so the runtime check is the
+authoritative one.
 
 ## Install
 
@@ -48,12 +54,18 @@ is created on the first write.
 
 - **Node count** – number of chain nodes to maintain.
 - **Node layout** – per-node name and a record on/off switch.
-- **Capture settings** – output directory, segment length, bit depth, auto start.
-- **Apply** / **Apply nodes to chain** – persist settings and reconcile the chain.
+- **Capture settings** – output directory, segment length (`0` = never split), bit depth,
+  auto start.
+- **Apply** / **Apply nodes to chain** – persist settings and reconcile the chain. The
+  chain action waits for the debounced save, so it cannot apply a stale node count.
 - **Verify chain** – re-read the chain and report how many copies the host kept.
 - **Start** / **Stop** – manual recording control.
 
-The panel polls the `status` config value once per second.
+The panel polls the `status` config value once per second. It follows the host theme
+(the host injects HSL tokens; the panel uses `hsl(var(--token))`), the host UI locale
+through the bridge `locale` API, and the host `color-scheme`. Status distinguishes
+"not checked yet", "chain ready", "chain incomplete" and "host deduplicates nodes"
+instead of guessing multi-node support when only one node was requested.
 
 ## Build
 

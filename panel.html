@@ -5,79 +5,110 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DSP Diagnose</title>
 <style>
+  /*
+   * The host injects its Material 3 theme as HSL component triples
+   * (for example `--surface: 215 15% 98%`), so every color here must be
+   * wrapped in hsl(). Defining a variable named `--primary` in this document
+   * would shadow the host token, and `--primary: var(--primary)` is a
+   * self-reference (guaranteed-invalid), so this panel deliberately owns no
+   * token with a host name.
+   */
   :root {
-    color-scheme: light dark;
-    --bg: var(--surface, #17181c);
-    --card: var(--surface-container, #1f2127);
-    --line: var(--surface-variant, #32343c);
-    --text: var(--on-surface, #e8e9ee);
-    --muted: var(--on-surface-variant, #9fa2ad);
-    --primary: var(--primary, #7aa2ff);
-    --danger: var(--error, #ff6b6b);
+    /* The patched host injects this; the fallback keeps native controls
+       readable on unpatched hosts. */
+    color-scheme: var(--micyou-color-scheme, light dark);
     --ok: #3ddc97;
+    --warn: #f5b942;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     padding: 18px;
-    background: var(--bg);
-    color: var(--text);
+    background: transparent;
+    color: hsl(var(--on-surface, 215 15% 25%));
     font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   }
   h1 { font-size: 18px; margin: 0; }
-  h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  h2 {
+    font-size: 13px; margin: 0 0 10px;
+    color: hsl(var(--on-surface-variant, 215 15% 45%));
+    font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  }
   .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; }
   .chip {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 3px 9px; border-radius: 999px; font-size: 12px;
-    background: color-mix(in srgb, var(--card) 80%, transparent);
-    border: 1px solid var(--line); color: var(--muted);
+    background: color-mix(in srgb, hsl(var(--surface-container, 215 15% 92%)) 80%, transparent);
+    border: 1px solid hsl(var(--outline, 215 15% 80%));
+    color: hsl(var(--on-surface-variant, 215 15% 45%));
   }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--outline, 215 15% 80%)); }
   .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-  .dot.warn { background: #f5b942; }
-  .dot.err { background: var(--danger); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+  .dot.warn { background: var(--warn); }
+  .dot.err { background: hsl(var(--error, 0 40% 55%)); }
+  .card {
+    background: hsl(var(--surface-container, 215 15% 92%));
+    border: 1px solid hsl(var(--outline, 215 15% 80%));
+    border-radius: 14px; padding: 14px; margin-bottom: 12px;
+  }
   .banner {
     display: none; padding: 10px 12px; margin-bottom: 12px; border-radius: 12px;
-    background: color-mix(in srgb, var(--danger) 14%, var(--card));
-    border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line));
-    color: var(--text); font-size: 13px;
+    background: color-mix(in srgb, hsl(var(--error, 0 40% 55%)) 14%, hsl(var(--surface-container, 215 15% 92%)));
+    border: 1px solid color-mix(in srgb, hsl(var(--error, 0 40% 55%)) 45%, hsl(var(--outline, 215 15% 80%)));
+    color: hsl(var(--on-surface, 215 15% 25%)); font-size: 13px;
   }
   .banner.show { display: block; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
-  label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+  label.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: hsl(var(--on-surface-variant, 215 15% 45%)); }
   input[type="text"], input[type="number"], select {
     width: 100%; padding: 8px 10px; border-radius: 9px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+    border: 1px solid hsl(var(--outline, 215 15% 80%));
+    background: hsl(var(--surface-bright, 215 15% 98%));
+    color: hsl(var(--on-surface, 215 15% 25%));
     font: inherit;
   }
-  input:focus, select:focus { outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent); outline-offset: -1px; }
-  .node-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+  input:focus, select:focus {
+    outline: 2px solid color-mix(in srgb, hsl(var(--primary, 215 35% 55%)) 55%, transparent);
+    outline-offset: -1px;
+  }
+  .node-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed hsl(var(--outline, 215 15% 80%)); }
   .node-row:last-child { border-bottom: 0; }
   .badge {
     min-width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center;
-    background: var(--bg); border: 1px solid var(--line); font-size: 12px; color: var(--muted);
+    background: hsl(var(--surface-bright, 215 15% 98%));
+    border: 1px solid hsl(var(--outline, 215 15% 80%));
+    font-size: 12px; color: hsl(var(--on-surface-variant, 215 15% 45%));
   }
   .grow { flex: 1; min-width: 0; }
   .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   button {
-    padding: 8px 14px; border-radius: 9px; border: 1px solid var(--line);
-    background: var(--card); color: var(--text); font: inherit; cursor: pointer;
+    padding: 8px 14px; border-radius: 9px;
+    border: 1px solid hsl(var(--outline, 215 15% 80%));
+    background: hsl(var(--surface-container, 215 15% 92%));
+    color: hsl(var(--on-surface, 215 15% 25%));
+    font: inherit; cursor: pointer;
   }
-  button:hover { border-color: var(--primary); }
-  button.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
-  button.danger { border-color: color-mix(in srgb, var(--danger) 60%, var(--line)); color: var(--danger); }
+  button:hover { border-color: hsl(var(--primary, 215 35% 55%)); }
+  button.primary {
+    background: hsl(var(--primary, 215 35% 55%));
+    border-color: hsl(var(--primary, 215 35% 55%));
+    color: hsl(var(--on-primary, 215 35% 92%));
+    font-weight: 600;
+  }
+  button.danger {
+    border-color: color-mix(in srgb, hsl(var(--error, 0 40% 55%)) 60%, hsl(var(--outline, 215 15% 80%)));
+    color: hsl(var(--error, 0 40% 55%));
+  }
   button:disabled { opacity: .45; cursor: default; }
-  .muted { color: var(--muted); font-size: 12px; }
+  .muted { color: hsl(var(--on-surface-variant, 215 15% 45%)); font-size: 12px; }
   .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 11.5px; word-break: break-all; }
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; }
-  td { padding: 5px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { text-align: left; color: hsl(var(--on-surface-variant, 215 15% 45%)); font-weight: 600; padding: 4px 6px; }
+  td { padding: 5px 6px; border-top: 1px solid hsl(var(--outline, 215 15% 80%)); vertical-align: top; }
   .nowrap { white-space: nowrap; }
   .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 4px; }
-  a { color: var(--primary); }
+  a { color: hsl(var(--primary, 215 35% 55%)); }
 </style>
 </head>
 <body>
@@ -108,8 +139,8 @@
           <option value="32">32-bit float</option>
         </select>
       </label>
-      <label class="field"><span id="lbl-segment">Split file every (seconds)</span>
-        <input id="segmentSeconds" type="number" min="5" max="86400" step="5" />
+      <label class="field"><span id="lbl-segment">Split file every (seconds, 0 = never)</span>
+        <input id="segmentSeconds" type="number" min="0" max="86400" step="5" />
       </label>
       <label class="field"><span id="lbl-autostart">Recording</span>
         <select id="autoStart">
@@ -161,7 +192,7 @@
 (function () {
   "use strict";
 
-  var ZH = /^zh/i.test(navigator.language || "");
+  var ZH = false;
   var TEXT = {
     title: ["DSP Diagnose", "DSP 录音诊断"],
     subtitle: [
@@ -171,7 +202,7 @@
     settings: ["Capture settings", "录制设置"],
     count: ["Node count (1–16)", "节点数量（1–16）"],
     bits: ["Bit depth", "位深"],
-    segment: ["Split file every (seconds)", "分段时长（秒）"],
+    segment: ["Split file every (seconds, 0 = never)", "分段时长（秒，0 = 不分割）"],
     recording: ["Recording", "录制"],
     autoOn: ["start automatically", "启用后自动开始"],
     autoOff: ["start manually", "手动开始"],
@@ -194,6 +225,7 @@
     current: ["Current / last file", "当前 / 上一个文件"],
     waiting: ["waiting for the plugin…", "等待插件…"],
     project: ["project page", "项目主页"],
+    record: ["record", "录音"],
     idle: ["idle", "未录制"],
     rec: ["recording", "录制中"],
     chainOk: ["chain ready", "处理链就绪"],
@@ -204,9 +236,14 @@
     hostUnknown: ["host ?", "宿主 ?"],
     saved: ["saved", "已保存"],
     saving: ["saving…", "保存中…"],
+    none: ["–", "–"],
     warn: [
-      "This MicYou build collapses duplicate plugin nodes, so only node 1 can record. MicYou 2.1.2 or newer is required to record every node.",
-      "当前 MicYou 宿主会合并重复的插件节点，因此只有节点 1 能录音。要录制所有节点，需要 MicYou 2.1.2 或更新版本。"
+      "This MicYou build collapses duplicate plugin nodes, so only node 1 can record. Install a host build with the multi-node plugin patch to record every node.",
+      "当前 MicYou 宿主会合并重复的插件节点，因此只有节点 1 能录音。要录制所有节点，请使用应用了多节点插件补丁的宿主。"
+    ],
+    warnMissing: [
+      "This plugin node is missing from the processing chain. Press “Apply nodes to chain”.",
+      "处理链中没有这个插件节点。请点击“同步节点到处理链”。"
     ],
     noDir: ["(not created yet)", "（尚未创建）"]
   };
@@ -248,6 +285,10 @@
     if (n < 1048576) return (n / 1024).toFixed(1) + " KiB";
     if (n < 1073741824) return (n / 1048576).toFixed(1) + " MiB";
     return (n / 1073741824).toFixed(2) + " GiB";
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
   }
 
   function setLabel(id, key) {
@@ -312,7 +353,7 @@
           '<input class="grow" type="text" data-name="' + index + '" maxlength="64" ' +
             'aria-label="node ' + (index + 1) + '" value="' + esc(node.name) + '" />' +
           '<label class="muted nowrap"><input type="checkbox" data-enabled="' + index + '" ' +
-            (node.enabled ? "checked" : "") + " /> " + (ZH ? "录音" : "record") + "</label>" +
+            (node.enabled ? "checked" : "") + " /> " + esc(t("record")) + "</label>" +
         "</div>"
       );
     }).join("");
@@ -328,7 +369,7 @@
       input.addEventListener("change", function () {
         var index = Number(input.getAttribute("data-enabled"));
         if (nodes[index]) nodes[index].enabled = input.checked;
-        saveNow();
+        void saveNow();
       });
     });
   }
@@ -337,25 +378,36 @@
     status = status || {};
     var recording = Boolean(status.recording);
     var nodeCount = Number(status.nodeCount) || nodes.length || 1;
+    var chainChecked = Boolean(status.chainChecked);
     var chainNodes = Number(status.chainNodes) || 0;
-    var hostMulti = Boolean(status.hostMultiNode);
+    var chainReady = chainChecked && chainNodes === nodeCount;
+    var multi = status.hostMultiNode;
 
     document.getElementById("dot-rec").className = "dot" + (recording ? " on" : "");
     document.getElementById("chip-rec").textContent = recording ? t("rec") : t("idle");
 
-    var chainReady = chainNodes === nodeCount && chainNodes > 0;
     document.getElementById("dot-chain").className =
-      "dot" + (chainNodes === 0 ? "" : chainReady ? " on" : " err");
+      "dot" + (!chainChecked ? "" : chainReady ? " on" : " err");
     document.getElementById("chip-chain").textContent =
-      chainNodes === 0 ? t("chainUnknown") : chainReady ? t("chainOk") : t("chainBad");
+      !chainChecked ? t("chainUnknown") : chainReady ? t("chainOk") : t("chainBad");
 
-    document.getElementById("dot-host").className = "dot" + (hostMulti ? " on" : " warn");
-    document.getElementById("chip-host").textContent = hostMulti ? t("hostOk") : t("hostStock");
+    var hostDot = "dot";
+    var hostText = t("hostUnknown");
+    if (multi === true) {
+      hostDot += " on";
+      hostText = t("hostOk");
+    } else if (multi === false) {
+      hostDot += " warn";
+      hostText = t("hostStock");
+    }
+    document.getElementById("dot-host").className = hostDot;
+    document.getElementById("chip-host").textContent = hostText;
 
     var banner = document.getElementById("banner");
-    var unsupported = nodeCount > 1 && chainNodes > 0 && chainNodes < nodeCount;
-    banner.className = "banner" + (unsupported ? " show" : "");
-    banner.textContent = unsupported ? t("warn") : "";
+    var missing = chainChecked && chainNodes === 0;
+    var dedup = chainChecked && nodeCount > 1 && chainNodes > 0 && chainNodes < nodeCount;
+    banner.className = "banner" + (missing || dedup ? " show" : "");
+    banner.textContent = missing ? t("warnMissing") : dedup ? t("warn") : "";
 
     var dir = status.outputDir || "";
     document.getElementById("status-dir").textContent = dir || t("noDir");
@@ -367,16 +419,19 @@
       body.innerHTML = '<tr><td colspan="6" class="muted">' + esc(t("waiting")) + "</td></tr>";
     } else {
       body.innerHTML = list.map(function (node) {
-        var active = node.current || t("noDir");
-        var last = node.last && node.last !== node.current ? '<div class="muted">↳ ' + esc(node.last) + "</div>" : "";
+        var current = node.current ? node.current : t("none");
+        var last = node.last && node.last !== node.current
+          ? '<div class="muted">↳ ' + esc(node.last) + "</div>"
+          : "";
+        var enabled = node.enabled !== false;
         return (
           "<tr>" +
             "<td>" + esc(node.index) + "</td>" +
-            '<td class="nowrap">' + esc(node.name) + (node.enabled ? "" : ' <span class="muted">(off)</span>') + "</td>" +
+            '<td class="nowrap">' + esc(node.name) + (enabled ? "" : ' <span class="muted">(off)</span>') + "</td>" +
             "<td>" + esc(node.files) + "</td>" +
             "<td>" + bytes(node.bytes) + "</td>" +
             "<td>" + esc(node.dropped) + "</td>" +
-            '<td class="mono">' + esc(active) + last + "</td>" +
+            '<td class="mono">' + esc(current) + last + "</td>" +
           "</tr>"
         );
       }).join("");
@@ -393,7 +448,35 @@
     var state = document.getElementById("save-state");
     state.textContent = t("saving");
     if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveNow, 400);
+    saveTimer = setTimeout(function () {
+      saveTimer = null;
+      void saveNow();
+    }, 400);
+  }
+
+  function readNodeCount() {
+    var value = parseInt(document.getElementById("nodeCount").value, 10);
+    if (!Number.isFinite(value)) value = nodes.length || 1;
+    return clamp(value, 1, 16);
+  }
+
+  function readSegmentSeconds() {
+    var raw = document.getElementById("segmentSeconds").value.trim();
+    if (raw === "") return 1800;
+    var value = Number(raw);
+    if (!Number.isFinite(value)) return 1800;
+    return clamp(Math.round(value), 0, 86400);
+  }
+
+  function readBits() {
+    var value = Number(document.getElementById("bits").value);
+    return value === 24 || value === 32 ? value : 16;
+  }
+
+  function setActionDisabled(disabled) {
+    ["btn-apply", "btn-chain", "btn-verify"].forEach(function (id) {
+      document.getElementById(id).disabled = disabled;
+    });
   }
 
   function saveNow() {
@@ -401,19 +484,35 @@
       clearTimeout(saveTimer);
       saveTimer = null;
     }
-    if (busy) return;
+    if (busy) return Promise.resolve();
+
+    var count = readNodeCount();
+    if (count !== nodes.length) {
+      nodes = normalizeNodes(nodes, count);
+      document.getElementById("nodeCount").value = String(count);
+      renderEditor();
+    }
+
     busy = true;
+    setActionDisabled(true);
     var state = document.getElementById("save-state");
     state.textContent = t("saving");
     var payload = {
-      nodeCount: nodes.length,
-      nodes: nodes.map(function (node) { return { name: node.name, enabled: node.enabled }; }),
+      nodeCount: count,
+      nodes: nodes.map(function (node, index) {
+        var name = String(node.name == null ? "" : node.name).trim();
+        return {
+          name: name || "node-" + (index + 1),
+          enabled: node.enabled !== false
+        };
+      }),
       outputDir: document.getElementById("outputDir").value.trim(),
-      segmentSeconds: clamp(Number(document.getElementById("segmentSeconds").value) || 1800, 5, 86400),
-      bits: Number(document.getElementById("bits").value) || 16,
+      segmentSeconds: readSegmentSeconds(),
+      bits: readBits(),
       autoStart: document.getElementById("autoStart").value === "true"
     };
-    Promise.all([
+
+    return Promise.all([
       call("set_config", { key: "nodes", value: payload.nodes }),
       call("set_config", { key: "nodeCount", value: payload.nodeCount }),
       call("set_config", { key: "outputDir", value: payload.outputDir }),
@@ -425,15 +524,27 @@
     }).then(function () {
       state.textContent = t("saved");
     }).catch(function (error) {
-      state.textContent = String(error && error.message || error);
+      state.textContent = String((error && error.message) || error);
     }).then(function () {
       busy = false;
-      renderStatus(cfg.status);
+      setActionDisabled(false);
+      return call("get_config").then(function (value) {
+        cfg = value || {};
+        renderStatus(cfg.status);
+      }).catch(function () {
+        renderStatus(cfg.status);
+      });
     });
   }
 
-  function clamp(value, min, max) {
-    return Math.min(max, Math.max(min, value));
+  // Persist pending edits first, then run a panel action. "Apply nodes to
+  // chain" used to fire immediately, before the debounced save finished, so it
+  // could reconcile the chain with the previous node count.
+  function saveThen(action) {
+    var pending = saveTimer ? saveNow() : Promise.resolve();
+    return pending.then(function () {
+      return trigger(action);
+    });
   }
 
   function fillForm() {
@@ -441,11 +552,15 @@
     nodes = normalizeNodes(cfg.nodes, count);
     document.getElementById("nodeCount").value = String(count);
     document.getElementById("outputDir").value = String(cfg.outputDir || "");
-    document.getElementById("segmentSeconds").value = String(Number(cfg.segmentSeconds) || 1800);
-    document.getElementById("bits").value = String(Number(cfg.bits) || 16);
+    var segment = Number(cfg.segmentSeconds);
+    if (!Number.isFinite(segment)) segment = 1800;
+    document.getElementById("segmentSeconds").value = String(segment);
+    var bits = Number(cfg.bits);
+    document.getElementById("bits").value = String(bits === 24 || bits === 32 ? bits : 16);
     document.getElementById("autoStart").value = cfg.autoStart === false ? "false" : "true";
     renderEditor();
     renderStatus(cfg.status);
+    applyStaticText();
   }
 
   function load() {
@@ -453,54 +568,88 @@
       cfg = value || {};
       fillForm();
     }).catch(function (error) {
-      document.getElementById("save-state").textContent = String(error && error.message || error);
+      document.getElementById("save-state").textContent = String((error && error.message) || error);
     });
   }
 
   function trigger(action) {
-    return call("trigger", { action: action, payload: null }).then(load).catch(function (error) {
-      document.getElementById("save-state").textContent = String(error && error.message || error);
+    return call("trigger", { action: action, payload: null }).then(function () {
+      // Refresh only the live status: a full load() would overwrite unsaved
+      // form edits when the user presses Start/Stop while typing.
+      return poll();
+    }).catch(function (error) {
+      document.getElementById("save-state").textContent = String((error && error.message) || error);
     });
   }
 
-  function bind() {
-    document.getElementById("btn-apply").addEventListener("click", saveNow);
-    document.getElementById("btn-chain").addEventListener("click", function () {
-      if (saveTimer) saveNow();
-      trigger("chain:apply");
-    });
-    document.getElementById("btn-verify").addEventListener("click", function () { trigger("chain:verify"); });
-    document.getElementById("btn-start").addEventListener("click", function () { trigger("start"); });
-    document.getElementById("btn-stop").addEventListener("click", function () { trigger("stop"); });
-    document.getElementById("btn-refresh").addEventListener("click", load);
-    document.getElementById("repo-link").addEventListener("click", function (event) {
-      event.preventDefault();
-      call("trigger", { action: "open_repo", payload: null }).catch(function () {});
-    });
-
-    document.getElementById("nodeCount").addEventListener("change", function () {
-      var count = clamp(Number(this.value) || 1, 1, 16);
-      nodes = normalizeNodes(nodes, count);
-      renderEditor();
-      saveNow();
-    });
-    ["outputDir", "segmentSeconds", "bits", "autoStart"].forEach(function (id) {
-      document.getElementById(id).addEventListener("change", saveNow);
-      if (id === "outputDir" || id === "segmentSeconds") {
-        document.getElementById(id).addEventListener("input", scheduleSave);
-      }
-    });
-  }
-
-  applyStaticText();
-  bind();
-  load();
-  setInterval(function () {
-    call("get_config").then(function (value) {
+  function poll() {
+    return call("get_config").then(function (value) {
       cfg = value || {};
       renderStatus(cfg.status);
     }).catch(function () {});
-  }, 1000);
+  }
+
+  function bind() {
+    document.getElementById("btn-apply").addEventListener("click", function () {
+      void saveNow();
+    });
+    document.getElementById("btn-chain").addEventListener("click", function () {
+      void saveThen("chain:apply");
+    });
+    document.getElementById("btn-verify").addEventListener("click", function () {
+      void saveThen("chain:verify");
+    });
+    document.getElementById("btn-start").addEventListener("click", function () {
+      void trigger("start");
+    });
+    document.getElementById("btn-stop").addEventListener("click", function () {
+      void trigger("stop");
+    });
+    document.getElementById("btn-refresh").addEventListener("click", function () {
+      void load();
+    });
+    document.getElementById("repo-link").addEventListener("click", function (event) {
+      event.preventDefault();
+      void trigger("open_repo");
+    });
+
+    document.getElementById("nodeCount").addEventListener("change", function () {
+      var count = readNodeCount();
+      this.value = String(count);
+      nodes = normalizeNodes(nodes, count);
+      renderEditor();
+      void saveNow();
+    });
+    ["outputDir", "segmentSeconds"].forEach(function (id) {
+      var input = document.getElementById(id);
+      input.addEventListener("input", scheduleSave);
+      input.addEventListener("change", function () { void saveNow(); });
+    });
+    ["bits", "autoStart"].forEach(function (id) {
+      document.getElementById(id).addEventListener("change", function () { void saveNow(); });
+    });
+  }
+
+  function detectLocale() {
+    return call("locale", {}).then(function (value) {
+      return String(value == null ? "" : value);
+    }).catch(function () {
+      // Older hosts have no locale bridge; fall back to the webview language.
+      return String(navigator.language || "en");
+    });
+  }
+
+  function boot() {
+    detectLocale().then(function (locale) {
+      ZH = /^zh/i.test(locale);
+      applyStaticText();
+      bind();
+      void load();
+      setInterval(poll, 1000);
+    });
+  }
+
+  boot();
 })();
 </script>
 </body>

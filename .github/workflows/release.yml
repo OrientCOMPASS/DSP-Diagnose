@@ -92,9 +92,27 @@ jobs:
           path: stage/*
           if-no-files-found: error
 
+  panel:
+    name: panel-assets
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check manifest and panel script
+        run: |
+          node <<'JS'
+          const fs = require('fs');
+          const manifest = JSON.parse(fs.readFileSync('plugin.json', 'utf8'));
+          if (!manifest.id || !manifest.version) throw new Error('plugin.json is incomplete');
+          const html = fs.readFileSync('panel.html', 'utf8');
+          const match = html.match(/<script>([\s\S]*?)<\/script>/);
+          if (!match) throw new Error('panel.html has no inline <script>');
+          new Function(match[1]);
+          console.log(`panel assets OK (${manifest.id} ${manifest.version})`);
+          JS
+
   package:
     name: package
-    needs: build
+    needs: [build, panel]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4

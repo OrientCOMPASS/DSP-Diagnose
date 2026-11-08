@@ -58,8 +58,14 @@ impl Config {
         if let Some(v) = json("outputDir").and_then(|v| v.as_str().map(str::to_owned)) {
             cfg.output_dir = v;
         }
-        if let Some(v) = json("segmentSeconds").and_then(|v| v.as_u64()) {
-            cfg.segment_seconds = v.clamp(5, 24 * 3600);
+        if let Some(v) = json("segmentSeconds").and_then(|v| number(&v)) {
+            // 0 disables rotation (documented in docs/TECHNICAL.md); values
+            // below the 5 s floor otherwise clamp to the floor.
+            cfg.segment_seconds = match v {
+                0 => 0,
+                1..=4 => 5,
+                _ => v.min(24 * 3600),
+            };
         }
         if let Some(v) = json("bits").and_then(|v| number(&v)) {
             cfg.bits = match v {

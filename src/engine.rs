@@ -68,12 +68,18 @@ pub struct Engine {
     pub output_dir: Mutex<PathBuf>,
     /// Set by `shutdown`; the writer thread drains and exits.
     pub stop: AtomicBool,
+    /// Set by `start`; the writer (the ring's only consumer) drops samples
+    /// queued before the new take began. Clearing the ring from this thread
+    /// would race the writer's tail cursor.
+    pub discard: AtomicBool,
 
     /// Number of `Plugin:<id>` nodes observed after the last verification.
     chain_nodes: AtomicUsize,
-    /// True when the host keeps every requested node (patched host), or when
-    /// only one node was requested so dedup cannot be observed.
-    host_multi_node: AtomicBool,
+    /// Whether [`chain_nodes`] has been observed at least once.
+    chain_checked: AtomicBool,
+    /// Three-state host capability observation: 0 = unknown, 1 = keeps every
+    /// requested node, 2 = deduplicates plugin nodes.
+    host_multi: AtomicU8,
     /// When false the plugin stops rewriting the chain on every settings
     /// change. Set after a stock (deduplicating) host ignores our write.
     auto_repair: AtomicBool,
@@ -100,8 +106,10 @@ impl Engine {
             channels: AtomicUsize::new(1),
             output_dir: Mutex::new(default_dir),
             stop: AtomicBool::new(false),
+            discard: AtomicBool::new(false),
             chain_nodes: AtomicUsize::new(0),
-            host_multi_node: AtomicBool::new(false),
+            chain_checked: AtomicBool::new(false),
+            host_multi: AtomicU8::new(0),
             auto_repair: AtomicBool::new(true),
             recent_logs: Mutex::new(VecDeque::new()),
             last_status: Mutex::new(String::new()),
@@ -133,6 +141,12 @@ impl Engine {
             }
         }
         *lock(&self.output_dir) = cfg.resolved_output_dir();
+        if previous != cfg.node_count {
+            // The previous chain observation describes a different node count.
+            self.chain_nodes.store(0, Ordering::Release);
+            self.chain_checked.store(false, Ordering::Release);
+            self.host_multi.store(0, Ordering::Release);
+        }
         self.publish_status(true);
         previous != cfg.node_count
     }
@@ -143,15 +157,13 @@ impl Engine {
         self.recording.load(Ordering::Acquire)
     }
 
-    /// Start (or keep) recording. Stale ring contents are discarded so a new
-    /// take starts at the moment the user pressed the button.
+    /// Start (or keep) recording. Samples queued before this point are
+    /// discarded by the writer thread, which owns the ring's consumer cursor.
     pub fn start(&self) {
         if self.recording.swap(true, Ordering::AcqRel) {
             return;
         }
-        for tap in &self.taps {
-            tap.ring.clear();
-        }
+        self.discard.store(true, Ordering::Release);
         self.log("recording started");
         self.publish_status(true);
     }
@@ -204,9 +216,10 @@ impl Engine {
     /// Read `processingChain`, make it contain exactly `nodeCount` copies of
     /// our node, and verify the result.
     ///
-    /// `force` is used for explicit user actions; automatic repairs may back
-    /// off when the host silently deduplicates our nodes.
-    pub fn apply_chain(&self, force: bool) -> Result<usize, String> {
+    /// A failed verification disables automatic repair, so a stock host that
+    /// collapses duplicates is not rewritten on every settings event. Explicit
+    /// user actions re-enable one attempt through [`Self::request_chain_repair`].
+    pub fn apply_chain(&self) -> Result<usize, String> {
         let desired = self.node_count.load(Ordering::Acquire).max(1);
         let settings = self
             .host
@@ -231,11 +244,7 @@ impl Engine {
         let observed = self.read_chain_len()?;
         self.note_chain_state(observed);
         let ok = observed == desired;
-        if ok {
-            self.auto_repair.store(true, Ordering::Release);
-        } else if !force {
-            self.auto_repair.store(false, Ordering::Release);
-        }
+        self.auto_repair.store(ok, Ordering::Release);
         self.publish_status(true);
 
         if ok {
@@ -259,19 +268,20 @@ impl Engine {
     /// repair only while the host is known to honour duplicate nodes.
     pub fn on_dsp_settings_changed(&self) {
         if self.auto_repair.load(Ordering::Acquire) {
-            let _ = self.apply_chain(false);
+            let _ = self.apply_chain();
         } else {
             let _ = self.verify_chain();
         }
     }
 
-    /// Re-enable automatic repair after a user-driven config change.
+    /// Re-enable automatic repair after a user-driven config change. `force`
+    /// also performs one attempt when automatic repair had backed off.
     pub fn request_chain_repair(&self, force: bool) {
         if force {
             self.auto_repair.store(true, Ordering::Release);
         }
         if self.auto_repair.load(Ordering::Acquire) {
-            let _ = self.apply_chain(force);
+            let _ = self.apply_chain();
         }
     }
 
@@ -289,8 +299,19 @@ impl Engine {
     fn note_chain_state(&self, observed: usize) {
         let desired = self.node_count.load(Ordering::Acquire).max(1);
         self.chain_nodes.store(observed, Ordering::Release);
-        let multi = desired <= 1 || observed >= desired;
-        self.host_multi_node.store(multi, Ordering::Release);
+        self.chain_checked.store(true, Ordering::Release);
+        // With one requested node the host's behaviour is unobservable: both a
+        // patched and a stock host keep exactly one copy.
+        let multi = if observed > desired {
+            1
+        } else if observed < desired {
+            2
+        } else if desired > 1 {
+            1
+        } else {
+            0
+        };
+        self.host_multi.store(multi, Ordering::Release);
     }
 
     // ── Status / logging ───────────────────────────────────────────────────
@@ -325,12 +346,23 @@ impl Engine {
             }));
         }
         let chain_nodes = self.chain_nodes.load(Ordering::Acquire);
+        let chain_checked = self.chain_checked.load(Ordering::Acquire);
+        let host_multi = match self.host_multi.load(Ordering::Acquire) {
+            1 => json!(true),
+            2 => json!(false),
+            _ => Value::Null,
+        };
         json!({
             "recording": self.is_recording(),
             "nodeCount": node_count,
             "chainNodes": chain_nodes,
-            "chainOk": chain_nodes == node_count,
-            "hostMultiNode": self.host_multi_node.load(Ordering::Acquire),
+            "chainChecked": chain_checked,
+            "chainOk": if chain_checked {
+                json!(chain_nodes == node_count)
+            } else {
+                Value::Null
+            },
+            "hostMultiNode": host_multi,
             "outputDir": lock(&self.output_dir).display().to_string(),
             "segmentSeconds": self.segment_seconds.load(Ordering::Relaxed),
             "bits": self.bits.load(Ordering::Relaxed),

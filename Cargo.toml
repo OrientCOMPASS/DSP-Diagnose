@@ -1,6 +1,6 @@
 [package]
 name = "dsp_diagnose"
-version = "1.0.0"
+version = "1.0.2"
 edition = "2021"
 license = "Unlicense"
 description = "MicYou DSP recording diagnostic plugin"

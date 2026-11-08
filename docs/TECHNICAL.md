@@ -109,9 +109,9 @@ On apply:
 
 Stock MicYou reconciles the chain inside `apply_dsp_settings`, so step 5 comes
 back with one copy. The plugin records the observed count, publishes
-`chainOk: false`, disables automatic retries (to avoid rewriting settings every
-second) and warns in the panel. An explicit **Apply nodes to chain** re-enables
-one retry.
+`chainOk: false` / `hostMultiNode: false`, disables automatic retries (to avoid
+rewriting settings every second) and warns in the panel. An explicit **Apply
+nodes to chain** re-enables one retry; a failed forced attempt backs off again.
 
 On `dsp_settings_changed` the plugin verifies the count; while the host honours
 duplicates it repairs a missing/extra copy, preserving user order. Reordering
@@ -120,6 +120,8 @@ the nodes alone never causes a write.
 The patch keeps duplicates only for plugins that opt in
 (`plugin.json → dsp.allowMultipleNodes: true`). The stock rule — one node per
 plugin — is unchanged for every other plugin, so no existing chain is affected.
+Without the patch the manifest field is ignored (unknown serde fields are
+skipped), so the plugin still loads and degrades to node 1.
 
 ### Why not remove de-duplication outright?
 
@@ -156,6 +158,12 @@ space, then publishes with a release store. There is no allocation, no mutex, no
 syscall and no host callback. If the writer is late, samples are dropped and
 counted; the audio stream is never blocked.
 
+Clearing the rings for a new take is **not** done from `Engine::start`: that
+thread is not the ring's consumer and would race the writer's tail store. The
+writer owns the consumer cursor, so `start` only sets `discard`; the writer
+clears every ring on its next 10 ms tick. At most a few milliseconds of newly
+arrived audio can be dropped in that window, which is preferable to a data race.
+
 Memory: 16 taps × 2^18 × 4 bytes ≈ 16 MiB per plugin instance, allocated at
 `init` before audio flows.
 
@@ -172,8 +180,11 @@ One thread (`dsp-diagnose-writer`) drains all rings every 10 ms:
 - writes a 44-byte canonical WAV header (PCM 16/24, IEEE float 32);
 - rewrites the RIFF/data sizes every second so a crashed process leaves a
   playable file up to the last flush;
-- closes and reopens the file when `segmentSeconds` elapses or the 4 GiB RIFF
-  limit approaches;
+- closes and reopens the file when `segmentSeconds` elapses, the 4 GiB RIFF
+  limit approaches, or the channel count, bit depth, sample rate or output
+  directory changes (the samples already dequeued go into the new file);
+- reports cumulative per-node bytes and file count, so the size stays visible
+  after rotation or stop;
 - stops at `stop`, finalizing the header, when the plugin is disabled.
 
 File names are sanitized: control characters and `<>:"/\|?*` become `_`, names
@@ -184,10 +195,10 @@ within the node list.
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `nodeCount` | number | `1` | 1..16; number of chain nodes to maintain |
+| `nodeCount` | number | `1` | 1..16; number of chain nodes to maintain (`MAX_TAPS` in `config.rs`) |
 | `nodes` | array | `[{name:"node-1",enabled:true}]` | per-node name and record switch |
 | `outputDir` | string | `""` | empty → `<home>/Music/MicYou DSP Diagnose` |
-| `segmentSeconds` | number | `1800` | 5 s .. 24 h; `0` disables rotation |
+| `segmentSeconds` | number | `1800` | `0` disables rotation; otherwise 5 s .. 24 h (1–4 s clamp to 5) |
 | `bits` | number/string | `16` | 16, 24 or 32 (32 = float) |
 | `autoStart` | boolean | `true` | start recording after enable |
 | `status` | object | `{}` | written by the plugin for the panel |
@@ -195,6 +206,25 @@ within the node list.
 The panel writes these keys and then sends `ui:apply`; the plugin also polls
 them once per second, so edits made through the host's automatic config form are
 picked up too.
+
+The panel intentionally has no `configSchema` in `plugin.json`: the hand-written
+`panel.html` is richer than the generated form. `MAX_TAPS` is the single source
+of truth for the 1..16 range.
+
+## 7a. Panel theming
+
+Host plugin panels are rendered in a sandboxed iframe and receive the host theme
+as **HSL component triples** injected into `:root` (for example
+`--surface: 215 15% 98%`). A panel must therefore use `hsl(var(--surface))`,
+never `var(--surface)`, and must not define `--surface`/`--primary`/… itself.
+The host also injects `--micyou-color-scheme: dark|light` (host patch) so native
+controls follow the host mode; panels may use
+`color-scheme: var(--micyou-color-scheme, light dark)`.
+
+The panel reads its display language from the bridge `locale` API, not
+`navigator.language`, so it follows the app language rather than the OS/webview
+language. Theme changes are pushed into a mounted panel without reloading it, so
+unsaved form edits survive a theme switch.
 
 ## 8. Failure handling
 
@@ -210,8 +240,9 @@ picked up too.
 ## 9. Testing
 
 GitHub Actions runs `cargo test` and a release build on Windows, Linux and macOS
-for every push and pull request. Unit tests cover ring wrap-around/overflow,
-name sanitizing/padding, chain insertion/removal and ABI identity. The release
-workflow assembles `plugin.zip` and attaches it to tagged releases.
-
-No local build artifacts are required or committed.
+for every push and pull request; a separate `panel` job parses `plugin.json` and
+the inline `panel.html` script (via `node`) so a JavaScript syntax error cannot
+ship. All compile/test work happens in CI; no local build artifacts are
+committed. Unit tests cover ring wrap-around/overflow, name sanitizing/padding,
+chain insertion/removal and ABI identity. The release workflow assembles
+`plugin.zip` and attaches it to tagged releases.

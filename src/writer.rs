@@ -20,11 +20,15 @@ const MAX_RIFF_DATA: u64 = 0xFFFF_0000;
 pub struct TapWriterState {
     pub file: Option<File>,
     pub path: PathBuf,
+    /// Directory the current file was opened in, so a config change rotates
+    /// the file even when the new path compares equal lexically.
+    pub dir: PathBuf,
     pub data_bytes: u64,
     pub opened_at: Instant,
     pub last_flush: Instant,
     pub channels: u16,
     pub bits: u8,
+    pub sample_rate: u32,
 }
 
 impl Default for TapWriterState {
@@ -32,11 +36,13 @@ impl Default for TapWriterState {
         Self {
             file: None,
             path: PathBuf::new(),
+            dir: PathBuf::new(),
             data_bytes: 0,
             opened_at: Instant::now(),
             last_flush: Instant::now(),
             channels: 1,
             bits: 16,
+            sample_rate: 48_000,
         }
     }
 }
@@ -50,6 +56,15 @@ pub fn spawn(engine: &'static Engine) -> std::io::Result<std::thread::JoinHandle
 fn run(engine: &'static Engine) {
     let mut scratch: Vec<f32> = Vec::with_capacity(RING_SAMPLES);
     loop {
+        // The writer is the ring's only consumer, so clearing here cannot race
+        // the audio producer: it only advances the consumer cursor. Clearing
+        // from `Engine::start` would race this thread's tail store.
+        if engine.discard.swap(false, Ordering::AcqRel) {
+            for tap in engine.taps.iter() {
+                tap.ring.clear();
+            }
+        }
+
         let stopping = engine.stop.load(Ordering::Acquire);
         let recording = engine.recording.load(Ordering::Acquire);
         let node_count = engine.node_count.load(Ordering::Acquire);
@@ -68,13 +83,22 @@ fn run(engine: &'static Engine) {
                 }
                 continue;
             }
-            // Channel layout changes start a new file rather than interleaving
-            // incompatible frames into the current one.
+
+            // A format or destination change starts a new file instead of
+            // interleaving incompatible frames into the current one. The
+            // samples already popped above go into the new file, not the old.
+            let channels = engine.channels.load(Ordering::Relaxed).max(1);
+            let bits = engine.bits.load(Ordering::Relaxed);
+            let rate = engine.sample_rate.load(Ordering::Relaxed).max(8_000);
             if state.file.is_some()
-                && state.channels as usize != engine.channels.load(Ordering::Relaxed).max(1)
+                && (state.channels as usize != channels
+                    || state.bits != bits
+                    || state.sample_rate != rate
+                    || output_dir_changed(engine, &*state))
             {
                 finalize(engine, tap, &mut state);
             }
+
             if available == 0 {
                 maybe_flush(engine, tap, &mut state);
                 continue;
@@ -94,7 +118,6 @@ fn run(engine: &'static Engine) {
             } else {
                 maybe_flush(engine, tap, &mut state);
             }
-            tap.bytes.store(state.data_bytes, Ordering::Relaxed);
         }
 
         if stopping {
@@ -109,6 +132,13 @@ fn run(engine: &'static Engine) {
         }
         std::thread::park_timeout(Duration::from_millis(10));
     }
+}
+
+fn output_dir_changed(engine: &Engine, state: &TapWriterState) -> bool {
+    let Ok(dir) = engine.output_dir.lock() else {
+        return false;
+    };
+    state.dir.as_path() != dir.as_path()
 }
 
 fn open_file(engine: &Engine, tap: &Tap, state: &mut TapWriterState, index: usize) -> bool {
@@ -156,16 +186,21 @@ fn open_file(engine: &Engine, tap: &Tap, state: &mut TapWriterState, index: usiz
 
     state.file = Some(file);
     state.path = path.clone();
+    state.dir = dir;
     state.data_bytes = 0;
     state.opened_at = Instant::now();
     state.last_flush = Instant::now();
     state.channels = channels;
     state.bits = bits;
+    state.sample_rate = sample_rate;
 
     if let Some(file) = state.file.as_mut() {
         if write_header(file, channels, sample_rate, bits, 0).is_err() {
             engine.log_once(format!("cannot write WAV header to {}", path.display()));
             state.file = None;
+            // Do not leave a zero-byte .wav behind that the next attempt would
+            // have to work around with a "-2" suffix.
+            let _ = std::fs::remove_file(&path);
             return false;
         }
     }
@@ -221,6 +256,9 @@ fn write_samples(engine: &Engine, tap: &Tap, state: &mut TapWriterState, samples
         return;
     }
     state.data_bytes += bytes.len() as u64;
+    // `Tap::bytes` is the cumulative size written for this node, so the panel
+    // keeps showing a useful size after a segment rotation or a stop.
+    tap.bytes.fetch_add(bytes.len() as u64, Ordering::Relaxed);
 }
 
 fn maybe_flush(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
@@ -234,7 +272,13 @@ fn maybe_flush(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
     };
     let result = (|| -> std::io::Result<()> {
         file.seek(SeekFrom::Start(0))?;
-        write_header(file, state.channels, sample_rate(engine), state.bits, data_len)?;
+        write_header(
+            file,
+            state.channels,
+            state.sample_rate,
+            state.bits,
+            data_len,
+        )?;
         file.seek(SeekFrom::End(0))?;
         file.flush()
     })();
@@ -245,11 +289,6 @@ fn maybe_flush(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
         ));
         finalize(engine, tap, state);
     }
-    tap.bytes.store(state.data_bytes, Ordering::Relaxed);
-}
-
-fn sample_rate(engine: &Engine) -> u32 {
-    engine.sample_rate.load(Ordering::Relaxed).max(8_000)
 }
 
 fn finalize(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
@@ -262,7 +301,7 @@ fn finalize(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
         write_header(
             &mut file,
             state.channels,
-            sample_rate(engine),
+            state.sample_rate,
             state.bits,
             data_len,
         )?;
@@ -280,7 +319,6 @@ fn finalize(engine: &Engine, tap: &Tap, state: &mut TapWriterState) {
     if let Ok(mut current) = tap.current.lock() {
         current.clear();
     }
-    tap.bytes.store(state.data_bytes, Ordering::Relaxed);
     state.data_bytes = 0;
     state.path = PathBuf::new();
 }
