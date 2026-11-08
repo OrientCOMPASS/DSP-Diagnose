@@ -1,7 +1,6 @@
-# Keep every text file LF in the repository and on checkout, so the patch in
-# host-patch/ applies to a normal MicYou clone on any platform.
+# Keep every text file LF in the repository and on checkout, so the sources
+# build identically on Windows, Linux and macOS.
 * text=auto eol=lf
-*.patch text eol=lf
 *.yml text eol=lf
 *.rs text eol=lf
 *.html text eol=lf
