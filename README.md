@@ -11,6 +11,8 @@ clipping, dropouts) can be located by listening instead of guessing.
 20261108143205-node-3.wav
 ```
 
+![DSP Diagnose preview](preview.png)
+
 ## What it does
 
 - Registers N diagnostic nodes in MicYou's DSP processing chain (`N` = 1..16).
@@ -28,12 +30,12 @@ clipping, dropouts) can be located by listening instead of guessing.
 
 ## Host support
 
-Multiple copies of one plugin in the DSP chain are a MicYou feature introduced by the
-multi-node host patch (`host-patch/micyou-multi-node.patch` in the workspace). This
-plugin requires MicYou **2.1.1 or newer** (`minHostVersion` in `plugin.json`) **and** a
-host build with that patch: the patch keeps duplicate `Plugin:<id>` entries and passes
-the node occurrence index to `micyou_plugin_process_node`, so every copy records only
-the audio at its own position.
+Multiple copies of one plugin in the DSP chain are a MicYou feature introduced by a
+host-side multi-node DSP patch (not part of the plugin package). This plugin requires
+MicYou **2.1.1 or newer** (`minHostVersion` in `plugin.json`) **and** a host build with
+that patch: the patch keeps duplicate `Plugin:<id>` entries and passes the node occurrence
+index to `micyou_plugin_process_node`, so every copy records only the audio at its own
+position.
 
 Stock MicYou ignores `dsp.allowMultipleNodes` and still collapses duplicates. The
 plugin detects this at runtime: it keeps recording node 1, publishes
@@ -70,7 +72,7 @@ instead of guessing multi-node support when only one node was requested.
 ## Build
 
 CI builds and tests every push. Artifacts are assembled by
-[`.github/workflows/release.yml`](.github/workflows/release.yml):
+[`release.yml`](https://github.com/OrientCOMPASS/DSP-Diagnose/blob/main/.github/workflows/release.yml):
 
 | Platform | Artifact |
 | --- | --- |

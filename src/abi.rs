@@ -152,11 +152,6 @@ impl Host {
         unsafe { f(self.api.ctx, k.as_ptr(), v.as_ptr()) == MplResult::Ok }
     }
 
-    pub fn audio_state(&self) -> Option<String> {
-        let f = self.api.audio_state?;
-        read_string(|out, size| unsafe { f(self.api.ctx, out, size) })
-    }
-
     pub fn get_dsp_settings(&self) -> Option<String> {
         let f = self.api.get_dsp_settings?;
         read_string(|out, size| unsafe { f(self.api.ctx, out, size) })

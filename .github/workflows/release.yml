@@ -125,7 +125,7 @@ jobs:
 
       - name: Assemble plugin.zip
         run: |
-          cp plugin.json panel.html LICENSE README.md stage/
+          cp plugin.json panel.html preview.png LICENSE README.md stage/
           ls -l stage
           (cd stage && zip -qr ../plugin.zip .)
           unzip -l plugin.zip

@@ -33,7 +33,6 @@
     "config.write",
     "control.observe",
     "control.intercept",
-    "audio.state",
     "open.url"
   ],
   "kind": "dsp",
