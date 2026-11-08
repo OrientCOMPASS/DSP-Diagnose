@@ -5,13 +5,13 @@
 //! thread: init/deinit, event/message handlers and the host timer thread.
 
 use crate::abi::Host;
-use crate::config::{Config, MAX_TAPS, PLUGIN_ID};
+use crate::config::{Config, MAX_TAPS};
 use crate::ring::SpscRing;
 use crate::writer::TapWriterState;
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 /// One `Plugin:<id>` entry in `AudioDspSettings.processing_chain`.
@@ -429,6 +429,7 @@ fn default_insert_position(chain: &[String]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::PLUGIN_ID;
 
     fn owned(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| item.to_string()).collect()
