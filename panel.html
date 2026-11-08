@@ -258,6 +258,7 @@
   var busy = false;
   var loaded = false;
   var saveTimer = null;
+  var pollTimer = null;
   var savePromise = Promise.resolve();
 
   function call(api, args) {
@@ -593,6 +594,7 @@
       fillForm();
       loaded = true;
       setActionDisabled(false);
+      if (!pollTimer) pollTimer = setInterval(poll, 1000);
       return true;
     }).catch(function (error) {
       document.getElementById("save-state").textContent = String((error && error.message) || error);
@@ -675,9 +677,7 @@
       setActionDisabled(true);
       document.getElementById("btn-start").disabled = true;
       document.getElementById("btn-stop").disabled = true;
-      load().then(function (ok) {
-        if (ok) setInterval(poll, 1000);
-      });
+      void load();
     });
   }
 
