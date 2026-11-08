@@ -257,6 +257,7 @@
   var nodes = [];
   var busy = false;
   var saveTimer = null;
+  var savePromise = Promise.resolve();
 
   function call(api, args) {
     return new Promise(function (resolve, reject) {
@@ -486,7 +487,13 @@
       clearTimeout(saveTimer);
       saveTimer = null;
     }
-    if (busy) return Promise.resolve();
+    if (busy) {
+      // A save is in flight; run another one afterwards so edits made during
+      // the request are not silently lost.
+      return savePromise.then(function () {
+        return saveNow();
+      });
+    }
 
     var count = readNodeCount();
     if (count !== nodes.length) {
@@ -514,7 +521,7 @@
       autoStart: document.getElementById("autoStart").value === "true"
     };
 
-    return Promise.all([
+    var run = Promise.all([
       call("set_config", { key: "nodes", value: payload.nodes }),
       call("set_config", { key: "nodeCount", value: payload.nodeCount }),
       call("set_config", { key: "outputDir", value: payload.outputDir }),
@@ -537,14 +544,17 @@
         renderStatus(cfg.status);
       });
     });
+
+    // Follow the in-flight save; a second saveNow() can queue behind it.
+    savePromise = run.then(function () {}, function () {});
+    return run;
   }
 
   // Persist pending edits first, then run a panel action. "Apply nodes to
   // chain" used to fire immediately, before the debounced save finished, so it
   // could reconcile the chain with the previous node count.
   function saveThen(action) {
-    var pending = saveTimer ? saveNow() : Promise.resolve();
-    return pending.then(function () {
+    return saveNow().then(function () {
       return trigger(action);
     });
   }

@@ -260,6 +260,11 @@ impl Engine {
     pub fn verify_chain(&self) -> Option<usize> {
         let observed = self.read_chain_len().ok()?;
         self.note_chain_state(observed);
+        if observed == self.node_count.load(Ordering::Acquire).max(1) {
+            // The chain is consistent again (for example after the user fixed
+            // it by hand), so automatic repair may resume.
+            self.auto_repair.store(true, Ordering::Release);
+        }
         self.publish_status(true);
         Some(observed)
     }
